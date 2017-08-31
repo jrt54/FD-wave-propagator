@@ -91,14 +91,11 @@ void Calcoperator(float *pressure, float *density, float *val, int ix, int nx, i
 {
 int z_row=nx*ny;//row-major order adjustment
 int idx=ix + nx*iy + z_row*iz; //current row-major index
-//printf("fd_radius=%d \n", fd_radius); 
 //indicies start at 0 b/c coeff[0] = 0 in centered, first-order derivative approximation
 float sol=0;
-//for(int i=1; i<=1;++i){
-//for(int j=1; j<=1;++j){
 for(int i=1; i<=fd_radius;++i){
 for(int j=1; j<=fd_radius;++j){
-
+//printf("i, j = %d %d \n", i, j);
 sol+=coeff[i]*coeff[j]*(
 
 //below is the dx compoent 
@@ -117,18 +114,201 @@ pressure[idx+i+j-1]*2.0/(density[idx+i-1]+density[idx+i]) //p_++/q(.5+)
 +pressure[idx+(i+j-1)*z_row]*2.0/(density[idx+(i-1)*z_row]+density[idx+i*z_row]) 
 -pressure[idx+(-i+j)*z_row]*2.0/(density[idx+(-i+1)*z_row]+density[idx-i*z_row])
 -pressure[idx+(i-j)*z_row]*2.0/(density[idx+(i-1)*z_row]+density[idx+i*z_row]) 
-//+pressure[idx+(-i-j+1)*z_row]//*2.0/(density[idx+(-i+1)*z_row]+density[idx-i*z_row])
-/*
-*/
++pressure[idx+(-i-j+1)*z_row]*2.0/(density[idx+(-i+1)*z_row]+density[idx-i*z_row])
 );
 
 }}
 
-//+pressure[idx+(-i-j+1)*z_row]//*2.0/(density[idx+(-i+1)*z_row]+density[idx-i*z_row])
 *val=sol;
 }
 
 
+void TimeStep(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel)
+{
+const int z_row=ny*nx;
+float scalar = vel*vel*dt*dt;
+
+
+
+const int offset = 2*fd_radius-1;
+#pragma omp parallel for collapse(3) 
+for(int i=offset; i<nx-offset; ++i){
+for(int j=offset; j<ny-offset; ++j){
+for(int k=offset; k<nz-offset; ++k){
+/*for(int i=fd_radius; i<nx-fd_radius; ++i){
+for(int j=fd_radius; j<ny-fd_radius; ++j){
+for(int k=fd_radius; k<nz-fd_radius; ++k){*/
+float operator;
+//printf("x, y, z = %d %d %d \n", i, j, k);
+Calcoperator(curr, density, &operator, i,nx, j, ny, k, nz, fd_radius, coeff);
+//printf("Operator calced = %f  \n", operator);
+prev[i+j*nx+k*z_row]=2*curr[i+j*nx+k*z_row]-prev[i+j*nx+k*z_row]+operator*scalar;
+
+
+//prev[i+j*nx+k*z_row]=2*curr[i+j*nx+k*z_row]-prev[i+j*nx+k*z_row];
+}}}
+
+
+
+}
+
+
+void AllTimeStep(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx)
+{
+const float scalar = dt*dt*vel*vel;
+for(int timestep=0; timestep<nt; timestep+=2)
+{
+TimeStep(prev, curr, density, nx, ny, nz, fd_radius, coeff, dt, vel);
+prev[src_idx] += source[timestep]*scalar;
+//prev[src_idx] += source[timestep];
+
+TimeStep(curr, prev, density, nx, ny, nz, fd_radius, coeff, dt, vel);
+curr[src_idx] += source[timestep+1]*scalar;
+//prev[src_idx] += source[timestep+1];
+
+}
+
+}
+
+
+void TimeStepPrecompute(float *prev, float *curr, float *density, float *dx, float *dy, float *dz, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel)
+{
+const int z_row=ny*nx;
+
+float scalar = vel*vel*dt*dt;
+
+#pragma omp parallel for collapse(3) 
+for(int i=fd_radius-1; i<nx-fd_radius-1; ++i){
+for(int j=fd_radius-1; j<ny-fd_radius-1; ++j){
+for(int k=fd_radius-1; k<nz-fd_radius-1; ++k){
+int idx = i+j*nx+k*z_row;
+float der_x=0;
+float der_y=0;
+float der_z=0;
+
+for(int r=1; r<=fd_radius;++r){
+//all these are implicitly referring to idx+.5
+der_x += coeff[r]*(curr[idx+r]-curr[idx-(r-1)]);
+der_y += coeff[r]*(curr[idx+r*nx]-curr[idx-(r-1)*nx]);
+der_z += coeff[r]*(curr[idx+r*z_row]-curr[idx-(r-1)*z_row]);
+}
+
+//all these are implicitly referring to idx+.5
+dx[idx]=der_x;
+dy[idx]=der_y;
+dz[idx]=der_z;
+
+}}}
+
+
+const int offset = 2*fd_radius-1;
+#pragma omp parallel for collapse(3) 
+for(int i=offset; i<nx-offset; ++i){
+for(int j=offset; j<ny-offset; ++j){
+for(int k=offset; k<nz-offset; ++k){
+int idx = i+j*nx+k*z_row;
+float operator=0;
+for(int r=1; r<=fd_radius;++r){
+
+//dx component
+operator+=coeff[r]*dx[idx+(r-1)]*2.0/(density[idx+r]+density[idx+r-1]);
+operator-=coeff[r]*dx[idx-r]*2.0/(density[idx-r] + density[idx-r+1]);
+
+//dy component
+operator+=coeff[r]*dy[idx+(r-1)*nx]*2.0/(density[idx+r*nx]+density[idx+(r-1)*nx]);
+operator-=coeff[r]*dy[idx-r*nx]*2.0/(density[idx-r*nx] + density[idx-(r+1)*nx]);
+
+//dz component
+operator+=coeff[r]*dz[idx+(r-1)*z_row]*2.0/(density[idx+r*z_row]+density[idx+(r-1)*z_row]);
+operator-=coeff[r]*dz[idx-r*z_row]*2.0/(density[idx-r*z_row] + density[idx-(r+1)*z_row]);
+}
+
+prev[idx]=2*curr[idx]-prev[idx]+operator*scalar;
+
+}}}
+
+
+}
+
+void AllTimeStepPreCompute(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx)
+{
+const float scalar = dt*dt*vel*vel;
+
+const int total_size = nx*ny*nz;
+float *dx = (float*) malloc(sizeof(float)*nx*ny*nz);
+dx = memset(dx, 0, total_size*sizeof(dx[0]));
+float *dy = (float*) malloc(sizeof(float)*nx*ny*nz);
+dy = memset(dy, 0, total_size*sizeof(dy[0]));
+float *dz = (float*) malloc(sizeof(float)*nx*ny*nz);
+dz = memset(dz, 0, total_size*sizeof(dz[0]));
+
+
+
+for(int timestep=0; timestep<nt; timestep+=2)
+{
+TimeStepPrecompute(prev, curr, density, dx, dy, dz, nx, ny, nz, fd_radius, coeff, dt, vel);
+prev[src_idx] += source[timestep]*scalar;
+//prev[src_idx] += source[timestep];
+
+TimeStepPrecompute(curr, prev, density, dx, dy, dz, nx, ny, nz, fd_radius, coeff, dt, vel);
+curr[src_idx] += source[timestep+1]*scalar;
+//prev[src_idx] += source[timestep+1];
+
+}
+}
+
+void TimeStepOpt(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel)
+{
+const int z_row=ny*nx;
+const int offset = 2*fd_radius-1;
+
+float scalar = vel*vel*dt*dt;
+
+#pragma omp parallel for collapse(3) 
+for(int i=fd_radius-1; i<nx-fd_radius-1; ++i){
+for(int j=fd_radius-1; j<ny-fd_radius-1; ++j){
+for(int k=fd_radius-1; k<nz-fd_radius-1; ++k){
+int idx = i+j*nx+k*z_row;
+prev[idx]=2*curr[idx]-prev[idx];
+}}}
+
+#pragma omp parallel for collapse(3) 
+for(int i=fd_radius-1; i<nx-fd_radius-1; ++i){
+for(int j=fd_radius-1; j<ny-fd_radius-1; ++j){
+for(int k=fd_radius-1; k<nz-fd_radius-1; ++k){
+int idx = i+j*nx+k*z_row;
+float der_x=0;
+float der_y=0;
+float der_z=0;
+
+for(int r=1; r<=fd_radius;++r){
+//all these are implicitly referring to idx+.5
+der_x += coeff[r]*(curr[idx+r]-curr[idx-(r-1)]);
+der_y += coeff[r]*(curr[idx+r*nx]-curr[idx-(r-1)*nx]);
+der_z += coeff[r]*(curr[idx+r*z_row]-curr[idx-(r-1)*z_row]);
+}
+
+
+//prev[idx]+=coeff[1]*der_x*2.0/(density[idx+1]+density[idx]); //can be done with first iterate of below for loop
+for(int r=0; r<=fd_radius-1;++r){
+prev[idx-r]+=scalar*coeff[r+1]*der_x*2.0/(density[idx+1]+density[idx]);
+prev[idx-r*nx]+=scalar*coeff[r+1]*der_y*2.0/(density[idx+nx]+density[idx]);
+prev[idx-r*z_row]+=scalar*coeff[r+1]*der_z*2.0/(density[idx+z_row]+density[idx]);
+}
+
+for(int r=1; r<=fd_radius;++r){
+prev[idx+r]-=scalar*coeff[r]*der_x*2.0/(density[idx+1]+density[idx]);
+prev[idx+r*nx]-=scalar*coeff[r]*der_y*2.0/(density[idx+nx]+density[idx]);
+prev[idx+r*z_row]-=scalar*coeff[r]*der_z*2.0/(density[idx+z_row]+density[idx]);
+}
+
+//all these are implicitly referring to idx+.5
+
+
+}}}
+
+
+}
 
 //plot solution at z_slice
 void PlotSolution(float *solution, const int nx, const int ny, const int nz, const int z_coord, int resolution, const char *FILENAME)
@@ -171,8 +351,8 @@ void PlotSolution(float *solution, const int nx, const int ny, const int nz, con
     for (int i=0; i < nx; ++i)
     for (int j=0; j < ny; ++j)
     {
-//    fprintf(temp, "%lf %lf %lf \n", xvals[i], yvals[j], PatchSolution(*mypatch, xvals[i], yvals[j])); //Write the data to a temporary file
     fprintf(temp, "%d %d %lf \n", i, j, solution[i+j*nx+z_coord*nx*ny]); //Write the data to a temporary file
+    //fprintf(temp, "%d %d %lf \n", i, j, solution[z_coord+j*nx+i*nx*ny]); //x slice
     }
     
     
@@ -183,7 +363,23 @@ void PlotSolution(float *solution, const int nx, const int ny, const int nz, con
     fclose(temp);
     pclose(gnuplotPipe);
 
-printf("Ending coeff generator \n");
+}
+
+void AllTimeStepOpt(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx)
+{
+const float scalar = dt*dt*vel*vel;
+for(int timestep=0; timestep<nt; timestep+=2)
+{
+TimeStepOpt(prev, curr, density, nx, ny, nz, fd_radius, coeff, dt, vel);
+prev[src_idx] += source[timestep]*scalar;
+//prev[src_idx] += source[timestep];
+
+TimeStepOpt(curr, prev, density, nx, ny, nz, fd_radius, coeff, dt, vel);
+curr[src_idx] += source[timestep+1]*scalar;
+//prev[src_idx] += source[timestep+1];
+
+}
+
 }
 
 //calculate deriv of input and store in dx array

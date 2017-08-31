@@ -257,7 +257,7 @@ curr[src_idx] += source[timestep+1]*scalar;
 }
 }
 
-void TimeStepOpt(float *prev, float *curr, float *density, float *grad, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel)
+void TimeStepOpt(float *prev, float *curr, float *density, float *grad, const int nx, const int ny, const int nz, const int fd_radius, const float *coeff, const float dt, const float vel)
 {
 const int z_row=ny*nx;
 const int offset = 2*fd_radius-1;
@@ -268,7 +268,8 @@ const float scalar = vel*vel*dt*dt;
 grad = memset(grad, 0, nx*ny*nz*sizeof(grad[0]));
 
 
-#pragma omp parallel for collapse(3) 
+//#pragma omp parallel for reduction(+:grad) 
+#pragma omp parallel for collapse(3)// reduction(+:grad) 
 for(int i=fd_radius-1; i<nx-fd_radius-1; ++i){
 for(int j=fd_radius-1; j<ny-fd_radius-1; ++j){
 for(int k=fd_radius-1; k<nz-fd_radius-1; ++k){
@@ -286,18 +287,20 @@ der_z += coeff[r]*(curr[idx+r*z_row]-curr[idx-(r-1)*z_row]);
 
 
 //prev[idx]+=coeff[1]*der_x*2.0/(density[idx+1]+density[idx]); //can be done with first iterate of below for loop
-for(int r=0; r<=fd_radius-1;++r){
-//all these are implicitly referring to idx+.5
-grad[idx-r]+=coeff[r+1]*der_x*2.0/(density[idx+1]+density[idx]);
-grad[idx-r*nx]+=coeff[r+1]*der_y*2.0/(density[idx+nx]+density[idx]);
-grad[idx-r*z_row]+=coeff[r+1]*der_z*2.0/(density[idx+z_row]+density[idx]);
-}
 
-for(int r=1; r<=fd_radius;++r){
-grad[idx+r]-=coeff[r]*der_x*2.0/(density[idx+1]+density[idx]);
-grad[idx+r*nx]-=coeff[r]*der_y*2.0/(density[idx+nx]+density[idx]);
-grad[idx+r*z_row]-=coeff[r]*der_z*2.0/(density[idx+z_row]+density[idx]);
-}
+	for(int r=0; r<=fd_radius-1;++r){
+	//all these are implicitly referring to idx+.5
+
+	grad[idx-r]+=coeff[r+1]*der_x*2.0/(density[idx+1]+density[idx]);
+	grad[idx-r*nx]+=coeff[r+1]*der_y*2.0/(density[idx+nx]+density[idx]);
+	grad[idx-r*z_row]+=coeff[r+1]*der_z*2.0/(density[idx+z_row]+density[idx]);
+	}
+
+	for(int r=1; r<=fd_radius;++r){
+	grad[idx+r]-=coeff[r]*der_x*2.0/(density[idx+1]+density[idx]);
+	grad[idx+r*nx]-=coeff[r]*der_y*2.0/(density[idx+nx]+density[idx]);
+	grad[idx+r*z_row]-=coeff[r]*der_z*2.0/(density[idx+z_row]+density[idx]);
+	}
 
 }}}
 

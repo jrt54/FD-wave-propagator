@@ -31,7 +31,7 @@ const float freq=15.0;
 float vel=3000;
 float Np=5.0;
 float h=vel/(freq*Np); //grid spacing
-const int nt=100;
+const int nt=50;
 //const float dt = .5*h/vel; //later insert CFL conditions
 const float dt = h/(vel*3.0); //later insert CFL conditions
 const int nx = 100;
@@ -124,8 +124,8 @@ clock_t t;
 time_t w;
 t=clock();
 w=time(NULL);
-AllTimeStepOpt(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx);
-//AllTimeStepPreCompute(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx);
+//AllTimeStepOpt(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx);
+AllTimeStepPreCompute(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx);
 //AllTimeStep(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx);
 t=clock()-t;
 w=time(NULL)-w;

@@ -11,5 +11,6 @@ void TimeStep(float *prev, float *curr, float *density, const int nx, const int 
 void AllTimeStep(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx);
 void TimeStepPrecompute(float *prev, float *curr, float *density, float *dx, float *dy, float *dz, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel);
 void AllTimeStepPreCompute(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx);
-void TimeStepOpt(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel);
+//void TimeStepOpt(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel);
+void TimeStepOpt(float *prev, float *curr, float *density, float *grad, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel);
 void AllTimeStepOpt(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx);

@@ -2,6 +2,10 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include "fd.h"
+//#include <ctime.h>
+#include <sys/time.h>
 #define MIN(x, y) (((x) < (y)) ? (x): (y))
 #define MAX(x, y) (((x) > (y)) ? (x): (y))
 
@@ -171,7 +175,7 @@ curr[src_idx] += source[timestep+1]*scalar;
 }
 
 
-void TimeStepPrecompute(float *prev, float *curr, float *density, float *dx, float *dy, float *dz, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel)
+void TimeStepPrecompute(float *prev, float *curr, float *density, float *dx, float *dy, float *dz, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, uint64* log)
 {
 const int z_row=ny*nx;
 
@@ -223,14 +227,16 @@ operator+=coeff[r]*dz[idx+(r-1)*z_row]*2.0/(density[idx+r*z_row]+density[idx+(r-
 operator-=coeff[r]*dz[idx-r*z_row]*2.0/(density[idx-r*z_row] + density[idx-(r+1)*z_row]);
 }
 
+uint64 update_start=GetTimeMs64();
 prev[idx]=2*curr[idx]-prev[idx]+operator*scalar;
+*log+=((GetTimeMs64()-update_start)); //in seconds
 
 }}}
 
 
 }
 
-void AllTimeStepPreCompute(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx)
+void AllTimeStepPreCompute(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx, uint64* log)
 {
 const float scalar = dt*dt*vel*vel;
 
@@ -246,18 +252,53 @@ dz = memset(dz, 0, total_size*sizeof(dz[0]));
 
 for(int timestep=0; timestep<nt; timestep+=2)
 {
-TimeStepPrecompute(prev, curr, density, dx, dy, dz, nx, ny, nz, fd_radius, coeff, dt, vel);
+TimeStepPrecompute(prev, curr, density, dx, dy, dz, nx, ny, nz, fd_radius, coeff, dt, vel, log);
 prev[src_idx] += source[timestep]*scalar;
 //prev[src_idx] += source[timestep];
 
-TimeStepPrecompute(curr, prev, density, dx, dy, dz, nx, ny, nz, fd_radius, coeff, dt, vel);
+TimeStepPrecompute(curr, prev, density, dx, dy, dz, nx, ny, nz, fd_radius, coeff, dt, vel, log);
 curr[src_idx] += source[timestep+1]*scalar;
 //prev[src_idx] += source[timestep+1];
 
 }
 }
 
-void TimeStepOpt(float *prev, float *curr, float *density, float *grad, const int nx, const int ny, const int nz, const int fd_radius, const float *coeff, const float dt, const float vel)
+unsigned long long GetTimeMs64()
+{
+#ifdef _WIN32
+ /* Windows */
+ FILETIME ft;
+ LARGE_INTEGER li;
+
+ /* Get the amount of 100 nano seconds intervals elapsed since January 1, 1601 (UTC) and copy it
+  * to a LARGE_INTEGER structure. */
+ GetSystemTimeAsFileTime(&ft);
+ li.LowPart = ft.dwLowDateTime;
+ li.HighPart = ft.dwHighDateTime;
+
+ uint64 ret = li.QuadPart;
+ ret -= 116444736000000000LL; /* Convert from file time to UNIX epoch time. */
+ ret /= 10000; /* From 100 nano seconds (10^-7) to 1 millisecond (10^-3) intervals */
+
+ return ret;
+#else
+ /* Linux */
+ struct timeval tv;
+
+ gettimeofday(&tv, NULL);
+
+ unsigned long long ret = tv.tv_usec;
+ /* Convert from micro seconds (10^-6) to milliseconds (10^-3) */
+ ret /= 1000;
+
+ /* Adds the seconds (10^0) after converting them to milliseconds (10^-3) */
+ ret += (tv.tv_sec * 1000);
+
+ return ret;
+#endif
+}
+
+void TimeStepOpt(float *prev, float *curr, float *density, float *grad, const int nx, const int ny, const int nz, const int fd_radius, const float *coeff, const float dt, const float vel, unsigned long long *log)
 {
 const int z_row=ny*nx;
 const int offset = 2*fd_radius-1;
@@ -288,20 +329,28 @@ der_z += coeff[r]*(curr[idx+r*z_row]-curr[idx-(r-1)*z_row]);
 
 //prev[idx]+=coeff[1]*der_x*2.0/(density[idx+1]+density[idx]); //can be done with first iterate of below for loop
 
+unsigned long long update_start=GetTimeMs64();
 	for(int r=0; r<=fd_radius-1;++r){
 	//all these are implicitly referring to idx+.5
 
+	#pragma omp atomic update
 	grad[idx-r]+=coeff[r+1]*der_x*2.0/(density[idx+1]+density[idx]);
+	#pragma omp atomic update
 	grad[idx-r*nx]+=coeff[r+1]*der_y*2.0/(density[idx+nx]+density[idx]);
+	#pragma omp atomic update
 	grad[idx-r*z_row]+=coeff[r+1]*der_z*2.0/(density[idx+z_row]+density[idx]);
+
+	#pragma omp atomic update
+	grad[idx+(r+1)]-=coeff[r+1]*der_x*2.0/(density[idx+1]+density[idx]);
+	#pragma omp atomic update
+	grad[idx+(r+1)*nx]-=coeff[r+1]*der_y*2.0/(density[idx+nx]+density[idx]);
+	#pragma omp atomic update
+	grad[idx+(r+1)*z_row]-=coeff[r+1]*der_z*2.0/(density[idx+z_row]+density[idx]);
 	}
 
-	for(int r=1; r<=fd_radius;++r){
-	grad[idx+r]-=coeff[r]*der_x*2.0/(density[idx+1]+density[idx]);
-	grad[idx+r*nx]-=coeff[r]*der_y*2.0/(density[idx+nx]+density[idx]);
-	grad[idx+r*z_row]-=coeff[r]*der_z*2.0/(density[idx+z_row]+density[idx]);
-	}
-
+//*log+=((double)(CLOCKS_PER_SEC))/CLOCKS_PER_SEC; //in seconds
+//#pragma omp atomic update
+*log+=((GetTimeMs64()-update_start)); //in seconds
 }}}
 
 
@@ -318,17 +367,17 @@ prev[idx]=2*curr[idx]-prev[idx]+scalar*grad[idx];
 }
 
 
-void AllTimeStepOpt(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx)
+void AllTimeStepOpt(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx, unsigned long long *log)
 {
 float *grad = (float*) malloc(sizeof(float)*nx*ny*nz);
 const float scalar = dt*dt*vel*vel;
 for(int timestep=0; timestep<nt; timestep+=2)
 {
-TimeStepOpt(prev, curr, density, grad, nx, ny, nz, fd_radius, coeff, dt, vel);
+TimeStepOpt(prev, curr, density, grad, nx, ny, nz, fd_radius, coeff, dt, vel, log);
 prev[src_idx] += source[timestep]*scalar;
 //prev[src_idx] += source[timestep];
 
-TimeStepOpt(curr, prev, density, grad, nx, ny, nz, fd_radius, coeff, dt, vel);
+TimeStepOpt(curr, prev, density, grad, nx, ny, nz, fd_radius, coeff, dt, vel, log);
 curr[src_idx] += source[timestep+1]*scalar;
 //prev[src_idx] += source[timestep+1];
 

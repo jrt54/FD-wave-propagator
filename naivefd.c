@@ -124,8 +124,9 @@ clock_t t;
 time_t w;
 t=clock();
 w=time(NULL);
-//AllTimeStepOpt(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx);
-AllTimeStepPreCompute(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx);
+unsigned long long update_time=0;
+AllTimeStepOpt(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx, &update_time);
+//AllTimeStepPreCompute(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx, &update_time);
 //AllTimeStep(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx);
 t=clock()-t;
 w=time(NULL)-w;
@@ -133,6 +134,8 @@ double time_taken=((double)t)/CLOCKS_PER_SEC; //in seconds
 double clock_taken=((double)w); //in seconds
 printf("timestepping took %f seconds clocktime \n", (float)time_taken);
 printf("timestepping took %ld seconds walltime \n", (long)clock_taken);
+printf("updating took %f seconds clocktime \n", (float)update_time/1000L);
+printf("CLOCKS_PER_SEC is %lu \n", CLOCKS_PER_SEC);
 
 {
 int resolution=40;

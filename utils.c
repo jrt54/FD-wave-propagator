@@ -139,14 +139,12 @@ const int offset = 2*fd_radius-1;
 for(int i=offset; i<nx-offset; ++i){
 for(int j=offset; j<ny-offset; ++j){
 for(int k=offset; k<nz-offset; ++k){
-/*for(int i=fd_radius; i<nx-fd_radius; ++i){
-for(int j=fd_radius; j<ny-fd_radius; ++j){
-for(int k=fd_radius; k<nz-fd_radius; ++k){*/
 float operator;
+int idx = i+j*nx+k*z_row;
 //printf("x, y, z = %d %d %d \n", i, j, k);
 Calcoperator(curr, density, &operator, i,nx, j, ny, k, nz, fd_radius, coeff);
 //printf("Operator calced = %f  \n", operator);
-prev[i+j*nx+k*z_row]=2*curr[i+j*nx+k*z_row]-prev[i+j*nx+k*z_row]+operator*scalar;
+prev[i+j*nx+k*z_row]=2*curr[i+j*nx+k*z_row]-prev[i+j*nx+k*z_row]+density[idx]*operator*scalar;
 
 
 //prev[i+j*nx+k*z_row]=2*curr[i+j*nx+k*z_row]-prev[i+j*nx+k*z_row];
@@ -228,7 +226,7 @@ operator-=coeff[r]*dz[idx-r*z_row]*2.0/(density[idx-r*z_row] + density[idx-(r+1)
 }
 
 uint64 update_start=GetTimeMs64();
-prev[idx]=2*curr[idx]-prev[idx]+operator*scalar;
+prev[idx]=2*curr[idx]-prev[idx]+density[idx]*operator*scalar;
 *log+=((GetTimeMs64()-update_start)); //in seconds
 
 }}}
@@ -326,6 +324,9 @@ der_y += coeff[r]*(curr[idx+r*nx]-curr[idx-(r-1)*nx]);
 der_z += coeff[r]*(curr[idx+r*z_row]-curr[idx-(r-1)*z_row]);
 }
 
+der_x *= 2.0/(density[idx+1]+density[idx]);
+der_y *= 2.0/(density[idx+nx]+density[idx]);
+der_z *= 2.0/(density[idx+z_row]+density[idx]);
 
 //prev[idx]+=coeff[1]*der_x*2.0/(density[idx+1]+density[idx]); //can be done with first iterate of below for loop
 
@@ -334,18 +335,18 @@ unsigned long long update_start=GetTimeMs64();
 	//all these are implicitly referring to idx+.5
 
 	#pragma omp atomic update
-	grad[idx-r]+=coeff[r+1]*der_x*2.0/(density[idx+1]+density[idx]);
+	grad[idx-r]+=coeff[r+1]*der_x;
 	#pragma omp atomic update
-	grad[idx-r*nx]+=coeff[r+1]*der_y*2.0/(density[idx+nx]+density[idx]);
+	grad[idx-r*nx]+=coeff[r+1]*der_y;
 	#pragma omp atomic update
-	grad[idx-r*z_row]+=coeff[r+1]*der_z*2.0/(density[idx+z_row]+density[idx]);
+	grad[idx-r*z_row]+=coeff[r+1]*der_z;
 
 	#pragma omp atomic update
-	grad[idx+(r+1)]-=coeff[r+1]*der_x*2.0/(density[idx+1]+density[idx]);
+	grad[idx+(r+1)]-=coeff[r+1]*der_x;
 	#pragma omp atomic update
-	grad[idx+(r+1)*nx]-=coeff[r+1]*der_y*2.0/(density[idx+nx]+density[idx]);
+	grad[idx+(r+1)*nx]-=coeff[r+1]*der_y;
 	#pragma omp atomic update
-	grad[idx+(r+1)*z_row]-=coeff[r+1]*der_z*2.0/(density[idx+z_row]+density[idx]);
+	grad[idx+(r+1)*z_row]-=coeff[r+1]*der_z;
 	}
 
 //*log+=((double)(CLOCKS_PER_SEC))/CLOCKS_PER_SEC; //in seconds
@@ -358,8 +359,10 @@ unsigned long long update_start=GetTimeMs64();
 for(int i=fd_radius-1; i<nx-fd_radius-1; ++i){
 for(int j=fd_radius-1; j<ny-fd_radius-1; ++j){
 for(int k=fd_radius-1; k<nz-fd_radius-1; ++k){
+unsigned long long update_start=GetTimeMs64();
 int idx = i+j*nx+k*z_row;
-prev[idx]=2*curr[idx]-prev[idx]+scalar*grad[idx];
+prev[idx]=2*curr[idx]-prev[idx]+scalar*density[idx]*grad[idx];
+*log+=((GetTimeMs64()-update_start)); //in seconds
 }}}
 
 

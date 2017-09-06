@@ -34,7 +34,7 @@ int digit_optind = 0;
                int this_option_optind = optind ? optind : 1;
                int option_index = 0;
                static struct option long_options[] = {
-                   {"space_order",    required_argument, 0,  'o' },
+                   {"radius",    required_argument, 0,  'o' },
                    {"solver",    required_argument, 0,  's' },
                    {"nx",         required_argument,                 0,  'x' },
                    {"ny",         required_argument,                 0,  'y' },
@@ -63,6 +63,7 @@ int digit_optind = 0;
                    break;
                
                case 'o':
+                   //printf("option space_order with value '%d'\n", *fd_radius);
                    *fd_radius=atoi(optarg);
                    printf("option space_order with value '%d'\n", *fd_radius);
                    break;
@@ -71,13 +72,14 @@ int digit_optind = 0;
                    if (strcmp(optarg, "slow")==0) {
 			*solver_option=0;
                    	printf("choosing to use slow, low-memory method \n");
-                   if (strcmp(optarg, "precompute")==0) {
+                   	}
+		   else if (strcmp(optarg, "pre")==0) {
 			*solver_option=1;
                    	printf("choosing to precompute \n");
 			}
-                   if (strcmp(optarg, "precompute")==0) {
-			*solver_option=1;
-                   	printf("choosing to precompute \n");
+                   else if (strcmp(optarg, "opt")==0) {
+                   	printf("choosing to try new opt \n");
+			*solver_option=2;
 			}
                    break;
                case '?':
@@ -95,7 +97,6 @@ int digit_optind = 0;
                printf("\n");
            }
 }
-
 int main(int argc, char** argv)
 {
 
@@ -109,7 +110,7 @@ int nx = 100;
 int ny = 100;
 int nz = 100;
 int fd_radius=8;//approximate derivative from x-r, ...x+r
-int solver_option=0;
+int solver_option=2;
 Processargs(argc, argv, &fd_radius, &nx, &ny, &nz, &solver_option);
 
 const int total_size = nx*ny*(nz);
@@ -198,9 +199,18 @@ time_t w;
 t=clock();
 w=time(NULL);
 unsigned long long update_time=0;
+if(solver_option==2){
+printf("Using new opt option \n");
 AllTimeStepOpt(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx, &update_time);
-//AllTimeStepPreCompute(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx, &update_time);
-//AllTimeStep(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx);
+}
+else if(solver_option==1){
+printf("Using precompute option \n");
+AllTimeStepPreCompute(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx, &update_time);
+}
+else if(solver_option==0){
+printf("Using slowest, low-memory option \n");
+AllTimeStep(pressure_prev, pressure_curr, density, nx, ny, nz, fd_radius, coeff, dt, vel, nt, source, src_idx);
+}
 t=clock()-t;
 w=time(NULL)-w;
 double time_taken=((double)t)/CLOCKS_PER_SEC; //in seconds
@@ -216,9 +226,11 @@ int sizeofnx=sizeof(nx)*(sizeof(char)/sizeof(int)+1);//get size of level digit
 int sizeofny=sizeof(ny)*(sizeof(char)/sizeof(int)+1);//get size of level digit
 int sizeofnz=sizeof(nz)*(sizeof(char)/sizeof(int)+1);//get size of level digit
 int sizeofnt=sizeof(nt)*(sizeof(char)/sizeof(int)+1);//get size of level digit
-int sizeofnumbers=sizeofnx+sizeofny+sizeofnz+sizeofnt;
-char *plotname = malloc(sizeof(char)*(strlen("soln_nx=_ny=_nz=_nt=") +sizeofnx+ strlen(".png")));
-sprintf(plotname, "soln_nx=%d_ny=%d_nz=%d_nt=%d.png", nx, ny, nz, nt);
+int sizeofopt=sizeof(solver_option)*(sizeof(char)/sizeof(int)+1);//get size of level digit
+int sizeofnumbers=sizeofnx+sizeofny+sizeofnz+sizeofnt+sizeofopt;
+char *plotname = malloc(sizeof(char)*(strlen("soln_nx=_ny=_nz=_nt=_opt=") +sizeofnumbers+ strlen(".png")));
+//sprintf(plotname, "plots/soln_nx=%d_ny=%d_nz=%d_nt=%d_opt=%d.png", nx, ny, nz, nt, solver_option);
+sprintf(plotname, "plots/soln_nx=%d_ny=%d_nz=%d_nt=%d.png", nx, ny, nz, nt);
 PlotSolution(pressure_curr, nx, ny, nz, src_z, resolution, plotname);
 }
 

@@ -9,6 +9,7 @@
 #define MIN(x, y) (((x) < (y)) ? (x): (y))
 #define MAX(x, y) (((x) > (y)) ? (x): (y))
 
+
 void fd_coeff(float *coeff, const float eval_point, const int order, float *points, const int num_points)
 {
     float c1, c2, c3;

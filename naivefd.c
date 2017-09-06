@@ -5,7 +5,8 @@
 #include <omp.h>
 #include "fd.h"
 #include <time.h>
-
+#include <unistd.h>
+#include <getopt.h>
 
 //Replace prev with expression for next
 //For now, velocity is constant
@@ -23,8 +24,79 @@ prev[i+j*nx+k*z_row]=0.0;
 }}}
 }
 
+void Processargs(int argc, char** argv, int *fd_radius, int *nx, int *ny, int *nz, int *solver_option)
+{
 
-int main()
+int c;
+int digit_optind = 0;
+
+           while (1) {
+               int this_option_optind = optind ? optind : 1;
+               int option_index = 0;
+               static struct option long_options[] = {
+                   {"space_order",    required_argument, 0,  'o' },
+                   {"solver",    required_argument, 0,  's' },
+                   {"nx",         required_argument,                 0,  'x' },
+                   {"ny",         required_argument,                 0,  'y' },
+                   {"nz",         required_argument,                 0,  'z' }
+               };
+
+               c = getopt_long(argc, argv, "abc:d:012",
+                        long_options, &option_index);
+               if (c == -1)
+                   break;
+
+               switch (c) {
+
+               case 'x':
+                   *nx=atoi(optarg);
+                   printf("option nx with value '%d'\n", *nx);
+                   break;
+               case 'y':
+                   *ny=atoi(optarg);
+                   printf("option ny with value '%d'\n", *ny);
+                   break;
+
+               case 'z':
+                   *nz=atoi(optarg);
+                   printf("option nz with value '%d'\n", *nz);
+                   break;
+               
+               case 'o':
+                   *fd_radius=atoi(optarg);
+                   printf("option space_order with value '%d'\n", *fd_radius);
+                   break;
+
+               case 's':
+                   if (strcmp(optarg, "slow")==0) {
+			*solver_option=0;
+                   	printf("choosing to use slow, low-memory method \n");
+                   if (strcmp(optarg, "precompute")==0) {
+			*solver_option=1;
+                   	printf("choosing to precompute \n");
+			}
+                   if (strcmp(optarg, "precompute")==0) {
+			*solver_option=1;
+                   	printf("choosing to precompute \n");
+			}
+                   break;
+               case '?':
+                   break;
+
+               default:
+                   printf("?? getopt returned character code 0%o ??\n", c);
+               }
+           }
+
+           if (optind < argc) {
+               printf("non-option ARGV-elements: ");
+               while (optind < argc)
+                   printf("%s ", argv[optind++]);
+               printf("\n");
+           }
+}
+
+int main(int argc, char** argv)
 {
 
 const float freq=15.0;
@@ -33,20 +105,21 @@ float Np=5.0;
 float h=vel/(freq*Np); //grid spacing
 const int nt=50;
 //const float dt = .5*h/vel; //later insert CFL conditions
-const float dt = h/(vel*3.0); //later insert CFL conditions
-const int nx = 100;
-const int ny = 100;
-const int nz = 100;
+int nx = 100;
+int ny = 100;
+int nz = 100;
+int fd_radius=8;//approximate derivative from x-r, ...x+r
+int solver_option=0;
+Processargs(argc, argv, &fd_radius, &nx, &ny, &nz, &solver_option);
+
 const int total_size = nx*ny*(nz);
 const int src_x = (int)nx/2;
 const int src_y = (int)ny/2;
 const int src_z = (int)nz/2;
 const int src_idx = src_x + nx*src_y + nx*ny*src_z;
 
-
-const int fd_radius=8;//approximate derivative from x-r, ...x+r
+const float dt = h/(vel*3.0); //later insert CFL conditions
 const int space_order=fd_radius*2+1;
-
 
 float* full_coeff = (float*) malloc(space_order*sizeof(float));
 float* grid_points = (float*) malloc(space_order*sizeof(float));

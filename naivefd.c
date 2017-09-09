@@ -152,6 +152,7 @@ for(int i=0;i<=fd_radius;++i)
 coeff[i]=full_coeff[fd_radius+i];
 }
 
+
 /*
 float coeff[2]={0,1};
 
@@ -161,10 +162,10 @@ coeff[i]*=1.0/h;
 }
 */
 
+printf("h = %f \n", h);
 for(int i =0; i<=fd_radius; ++i){
 printf("unscaled(by grid size) coeff[%d]=%f \n", i, coeff[i]*h);
 }
-
 
 
 float *source = (float*) malloc(sizeof(float)*nt);
@@ -184,11 +185,13 @@ density[i]=1.0;
 float *pressure_prev = (float*) malloc(sizeof(float)*total_size);
 //pressure_prev = memset(pressure_prev, 0, total_size*sizeof(pressure_prev[0]));
 Setup(pressure_prev, nx, ny, nz);
+
+
 /*for(int i=0; i<total_size; ++i)
 {
 printf("pressure_prev[%d]: %f \n",i, pressure[i]);
-}*/
-
+}
+*/
 
 float *pressure_curr = (float*) malloc(sizeof(float)*total_size);
 //pressure_curr = memset(pressure_curr, 0, total_size*sizeof(pressure_curr[0]));
@@ -216,7 +219,7 @@ w=time(NULL)-w;
 double time_taken=((double)t)/CLOCKS_PER_SEC; //in seconds
 double clock_taken=((double)w); //in seconds
 printf("timestepping took %f seconds clocktime \n", (float)time_taken);
-printf("timestepping took %ld seconds walltime \n", (long)clock_taken);
+//printf("timestepping took %ld seconds walltime \n", (long)clock_taken);
 printf("updating took %f seconds clocktime \n", (float)update_time/1000L);
 printf("CLOCKS_PER_SEC is %lu \n", CLOCKS_PER_SEC);
 
@@ -227,14 +230,22 @@ int sizeofny=sizeof(ny)*(sizeof(char)/sizeof(int)+1);//get size of level digit
 int sizeofnz=sizeof(nz)*(sizeof(char)/sizeof(int)+1);//get size of level digit
 int sizeofnt=sizeof(nt)*(sizeof(char)/sizeof(int)+1);//get size of level digit
 int sizeofopt=sizeof(solver_option)*(sizeof(char)/sizeof(int)+1);//get size of level digit
-int sizeofnumbers=sizeofnx+sizeofny+sizeofnz+sizeofnt+sizeofopt;
-char *plotname = malloc(sizeof(char)*(strlen("soln_nx=_ny=_nz=_nt=_opt=") +sizeofnumbers+ strlen(".png")));
-//sprintf(plotname, "plots/soln_nx=%d_ny=%d_nz=%d_nt=%d_opt=%d.png", nx, ny, nz, nt, solver_option);
-sprintf(plotname, "plots/soln_nx=%d_ny=%d_nz=%d_nt=%d.png", nx, ny, nz, nt);
+int sizeofradius=sizeof(fd_radius)*(sizeof(char)/sizeof(int)+1);//get size of level digit
+int sizeofnumbers=sizeofnx+sizeofny+sizeofnz+sizeofnt+sizeofopt+sizeofradius;
+char *plotname = malloc(sizeof(char)*(strlen("soln_nx=_ny=_nz=_nt=_opt=_radius=%d") +sizeofnumbers+ strlen(".png")));
+sprintf(plotname, "plots/soln_nx=%d_ny=%d_nz=%d_nt=%d_opt=%d_radius=%d.png", nx, ny, nz, nt, solver_option, fd_radius);
+//sprintf(plotname, "plots/soln_nx=%d_ny=%d_nz=%d_nt=%d.png", nx, ny, nz, nt);
 PlotSolution(pressure_curr, nx, ny, nz, src_z, resolution, plotname);
+free(plotname);
 }
 
-
+free(pressure_prev);
+free(pressure_curr);
+free(density);
+free(full_coeff);
+free(grid_points);
+free(source);
+free(coeff);
 return 0;
 
 }

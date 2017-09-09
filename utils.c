@@ -19,8 +19,8 @@ void fd_coeff(float *coeff, const float eval_point, const int order, float *poin
     
 
 
-//  float* d = (float*) malloc((order+1)*num_points*num_points*sizeof(float));
-    float d[(order+1)*num_points*num_points];
+    float* d = (float*) malloc((order+1)*num_points*num_points*sizeof(float));
+    //float d[(order+1)*num_points*num_points];
     int m_idx = (order+1)*num_points;
     int n_idx = num_points;
     
@@ -31,7 +31,7 @@ void fd_coeff(float *coeff, const float eval_point, const int order, float *poin
 
     //array initializer 2
     int sizeofd = (order+1)*(num_points)*(num_points)*sizeof(float);
-    memset(d, 0.f, sizeofd);
+    memset(d, 0.0, sizeofd);
     
 
     //array initializer 3
@@ -64,11 +64,18 @@ void fd_coeff(float *coeff, const float eval_point, const int order, float *poin
         c1=c2;
     }
 
+
     for(int i=0; i<num_points; ++i){
 	coeff[i] = d[order*m_idx+(num_points-1)*n_idx + i];
     }
 
-//    free(d);
+/*for(int m=0; m<=order;++m){
+for(int j =0; j<=num_points; ++j){
+for(int i =0; i<=num_points; ++i){
+printf("d[%d, %d, %d]=%f \n", i, j, m,  d[m*m_idx+(j)*n_idx + i]);
+}}}*/
+
+    free(d);
 }
 
 //#include "fd.h"
@@ -128,7 +135,7 @@ pressure[idx+i+j-1]*2.0/(density[idx+i-1]+density[idx+i]) //p_++/q(.5+)
 }
 
 
-void TimeStep(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel)
+void TimeStep(float *prev, float *curr, float *density, float *grad, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel)
 {
 const int z_row=ny*nx;
 float scalar = vel*vel*dt*dt;
@@ -143,14 +150,17 @@ for(int k=offset; k<nz-offset; ++k){
 float operator;
 int idx = i+j*nx+k*z_row;
 //printf("x, y, z = %d %d %d \n", i, j, k);
-Calcoperator(curr, density, &operator, i,nx, j, ny, k, nz, fd_radius, coeff);
+Calcoperator(curr, density, &grad[idx], i,nx, j, ny, k, nz, fd_radius, coeff);
 //printf("Operator calced = %f  \n", operator);
-prev[i+j*nx+k*z_row]=2*curr[i+j*nx+k*z_row]-prev[i+j*nx+k*z_row]+density[idx]*operator*scalar;
-
-
-//prev[i+j*nx+k*z_row]=2*curr[i+j*nx+k*z_row]-prev[i+j*nx+k*z_row];
 }}}
 
+#pragma omp parallel for collapse(3) 
+for(int i=fd_radius-1; i<nx-fd_radius-1; ++i){
+for(int j=fd_radius-1; j<ny-fd_radius-1; ++j){
+for(int k=fd_radius-1; k<nz-fd_radius-1; ++k){
+int idx = i+j*nx+k*z_row;
+prev[idx]=2*curr[idx]-prev[idx]+scalar*density[idx]*grad[idx];
+}}}
 
 
 }
@@ -159,22 +169,27 @@ prev[i+j*nx+k*z_row]=2*curr[i+j*nx+k*z_row]-prev[i+j*nx+k*z_row]+density[idx]*op
 void AllTimeStep(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx)
 {
 const float scalar = dt*dt*vel*vel;
+float *grad = (float*) malloc(sizeof(float)*nx*ny*nz);
+
+
 for(int timestep=0; timestep<nt; timestep+=2)
 {
-TimeStep(prev, curr, density, nx, ny, nz, fd_radius, coeff, dt, vel);
+TimeStep(prev, curr, density, grad, nx, ny, nz, fd_radius, coeff, dt, vel);
 prev[src_idx] += source[timestep]*scalar;
 //prev[src_idx] += source[timestep];
 
-TimeStep(curr, prev, density, nx, ny, nz, fd_radius, coeff, dt, vel);
+TimeStep(curr, prev, density, grad, nx, ny, nz, fd_radius, coeff, dt, vel);
 curr[src_idx] += source[timestep+1]*scalar;
 //prev[src_idx] += source[timestep+1];
 
 }
 
+free(grad);
+
 }
 
 
-void TimeStepPrecompute(float *prev, float *curr, float *density, float *dx, float *dy, float *dz, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, uint64* log)
+void TimeStepPrecompute(float *prev, float *curr, float *density, float *grad, float *dx, float *dy, float *dz, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, uint64* log)
 {
 const int z_row=ny*nx;
 
@@ -210,27 +225,37 @@ for(int i=offset; i<nx-offset; ++i){
 for(int j=offset; j<ny-offset; ++j){
 for(int k=offset; k<nz-offset; ++k){
 int idx = i+j*nx+k*z_row;
-float operator=0;
+uint64 update_start=GetTimeMs64();
+grad[idx]=0;
 for(int r=1; r<=fd_radius;++r){
 
 //dx component
-operator+=coeff[r]*dx[idx+(r-1)]*2.0/(density[idx+r]+density[idx+r-1]);
-operator-=coeff[r]*dx[idx-r]*2.0/(density[idx-r] + density[idx-r+1]);
+grad[idx]+=coeff[r]*dx[idx+(r-1)]*2.0/(density[idx+r]+density[idx+r-1]);
+grad[idx]-=coeff[r]*dx[idx-r]*2.0/(density[idx-r] + density[idx-r+1]);
 
 //dy component
-operator+=coeff[r]*dy[idx+(r-1)*nx]*2.0/(density[idx+r*nx]+density[idx+(r-1)*nx]);
-operator-=coeff[r]*dy[idx-r*nx]*2.0/(density[idx-r*nx] + density[idx-(r+1)*nx]);
+grad[idx]+=coeff[r]*dy[idx+(r-1)*nx]*2.0/(density[idx+r*nx]+density[idx+(r-1)*nx]);
+grad[idx]-=coeff[r]*dy[idx-r*nx]*2.0/(density[idx-r*nx] + density[idx-(r+1)*nx]);
 
 //dz component
-operator+=coeff[r]*dz[idx+(r-1)*z_row]*2.0/(density[idx+r*z_row]+density[idx+(r-1)*z_row]);
-operator-=coeff[r]*dz[idx-r*z_row]*2.0/(density[idx-r*z_row] + density[idx-(r+1)*z_row]);
+grad[idx]+=coeff[r]*dz[idx+(r-1)*z_row]*2.0/(density[idx+r*z_row]+density[idx+(r-1)*z_row]);
+grad[idx]-=coeff[r]*dz[idx-r*z_row]*2.0/(density[idx-r*z_row] + density[idx-(r+1)*z_row]);
 }
 
-uint64 update_start=GetTimeMs64();
-prev[idx]=2*curr[idx]-prev[idx]+density[idx]*operator*scalar;
 *log+=((GetTimeMs64()-update_start)); //in seconds
 
 }}}
+
+#pragma omp parallel for collapse(3) 
+for(int i=fd_radius-1; i<nx-fd_radius-1; ++i){
+for(int j=fd_radius-1; j<ny-fd_radius-1; ++j){
+for(int k=fd_radius-1; k<nz-fd_radius-1; ++k){
+unsigned long long update_start=GetTimeMs64();
+int idx = i+j*nx+k*z_row;
+prev[idx]=2*curr[idx]-prev[idx]+scalar*density[idx]*grad[idx];
+*log+=((GetTimeMs64()-update_start)); //in seconds
+}}}
+
 
 
 }
@@ -238,6 +263,7 @@ prev[idx]=2*curr[idx]-prev[idx]+density[idx]*operator*scalar;
 void AllTimeStepPreCompute(float *prev, float *curr, float *density, const int nx, const int ny, const int nz, const int fd_radius, float *coeff, const float dt, const float vel, const int nt, float *source, const int src_idx, uint64* log)
 {
 const float scalar = dt*dt*vel*vel;
+float *grad = (float*) malloc(sizeof(float)*nx*ny*nz);
 
 const int total_size = nx*ny*nz;
 float *dx = (float*) malloc(sizeof(float)*nx*ny*nz);
@@ -251,15 +277,21 @@ dz = memset(dz, 0, total_size*sizeof(dz[0]));
 
 for(int timestep=0; timestep<nt; timestep+=2)
 {
-TimeStepPrecompute(prev, curr, density, dx, dy, dz, nx, ny, nz, fd_radius, coeff, dt, vel, log);
+TimeStepPrecompute(prev, curr, density, grad, dx, dy, dz, nx, ny, nz, fd_radius, coeff, dt, vel, log);
 prev[src_idx] += source[timestep]*scalar;
 //prev[src_idx] += source[timestep];
 
-TimeStepPrecompute(curr, prev, density, dx, dy, dz, nx, ny, nz, fd_radius, coeff, dt, vel, log);
+TimeStepPrecompute(curr, prev, density, grad, dx, dy, dz, nx, ny, nz, fd_radius, coeff, dt, vel, log);
 curr[src_idx] += source[timestep+1]*scalar;
 //prev[src_idx] += source[timestep+1];
 
 }
+
+free(grad);
+free(dx);
+free(dy);
+free(dz);
+
 }
 
 unsigned long long GetTimeMs64()
@@ -387,6 +419,7 @@ curr[src_idx] += source[timestep+1]*scalar;
 
 }
 
+free(grad);
 }
 
 //plot solution at z_slice
